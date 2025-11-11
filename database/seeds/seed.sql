@@ -230,5 +230,285 @@ BEGIN
     END IF;
 END $$;
 
--- To be continued in next file (vessels, assignments, etc.)
--- This seed file is getting large, will create part 2
+-- SECTION 3: VESSELS (80 total)
+
+-- Turkish vessels (50)
+INSERT INTO vessels (customer_id, name, registration_number, flag_country, vessel_type, length_meters, width_meters, draft_meters, manufacturer, year_built, insurance_company, insurance_policy_number, insurance_expiry_date, created_at)
+SELECT
+    c.id,
+    CASE
+        WHEN c.id = 1 THEN 'Psedelia'
+        WHEN c.id = 2 THEN 'Deniz Yıldızı'
+        WHEN c.id = 3 THEN 'Martı'
+        WHEN c.id = 4 THEN 'Beyaz Yelken'
+        WHEN c.id = 5 THEN 'Mavi Yolculuk'
+        ELSE 'Yat-' || LPAD(c.id::text, 3, '0')
+    END,
+    'TR-' || LPAD((1000 + c.id)::text, 6, '0'),
+    'Turkey',
+    CASE
+        WHEN c.id % 4 = 0 THEN 'sailboat'::vessel_type
+        WHEN c.id % 4 = 1 THEN 'motorboat'::vessel_type
+        WHEN c.id % 4 = 2 THEN 'catamaran'::vessel_type
+        ELSE 'yacht'::vessel_type
+    END,
+    10.0 + (c.id % 30),
+    3.5 + (c.id % 4),
+    2.0 + (c.id % 2) * 0.5,
+    CASE
+        WHEN c.id % 5 = 0 THEN 'Jeanneau'
+        WHEN c.id % 5 = 1 THEN 'Bavaria'
+        WHEN c.id % 5 = 2 THEN 'Beneteau'
+        WHEN c.id % 5 = 3 THEN 'Azimut'
+        ELSE 'Sunseeker'
+    END,
+    2015 + (c.id % 10),
+    'Ak Sigorta',
+    'POL-TR-' || LPAD(c.id::text, 6, '0'),
+    NOW() + INTERVAL '180 days' - (c.id * INTERVAL '5 days'),
+    NOW() - INTERVAL '365 days' + (c.id * INTERVAL '10 days')
+FROM customers c
+WHERE c.id <= 30 AND c.country = 'Turkey'
+ORDER BY c.id;
+
+-- International vessels (30)
+INSERT INTO vessels (customer_id, name, registration_number, flag_country, vessel_type, length_meters, width_meters, draft_meters, manufacturer, year_built, insurance_company, insurance_policy_number, insurance_expiry_date, created_at)
+SELECT
+    c.id,
+    CASE
+        WHEN c.id = 31 THEN 'Sea Spirit'
+        WHEN c.id = 32 THEN 'Ocean Dream'
+        WHEN c.id = 33 THEN 'Wind Dancer'
+        WHEN c.id = 34 THEN 'Bella Vita'
+        WHEN c.id = 35 THEN 'Poseidon'
+        ELSE 'Vessel-' || LPAD((c.id - 30)::text, 3, '0')
+    END,
+    c.country || '-' || LPAD((2000 + c.id)::text, 6, '0'),
+    c.country,
+    CASE
+        WHEN c.id % 3 = 0 THEN 'yacht'::vessel_type
+        WHEN c.id % 3 = 1 THEN 'sailboat'::vessel_type
+        ELSE 'motorboat'::vessel_type
+    END,
+    15.0 + (c.id % 35),
+    4.0 + (c.id % 5),
+    2.5 + (c.id % 3) * 0.5,
+    CASE
+        WHEN c.id % 4 = 0 THEN 'Ferretti'
+        WHEN c.id % 4 = 1 THEN 'Princess'
+        WHEN c.id % 4 = 2 THEN 'Lagoon'
+        ELSE 'Riva'
+    END,
+    2010 + (c.id % 15),
+    'Lloyd''s Insurance',
+    'POL-INT-' || LPAD(c.id::text, 6, '0'),
+    NOW() + INTERVAL '240 days' - (c.id * INTERVAL '7 days'),
+    NOW() - INTERVAL '300 days' + (c.id * INTERVAL '8 days')
+FROM customers c
+WHERE c.id > 30
+ORDER BY c.id;
+
+-- Verify vessel count
+DO $$
+DECLARE
+    vessel_count INT;
+BEGIN
+    SELECT COUNT(*) INTO vessel_count FROM vessels;
+    RAISE NOTICE 'Total vessels created: %', vessel_count;
+
+    IF vessel_count < 50 THEN
+        RAISE EXCEPTION 'Expected at least 50 vessels, but created %', vessel_count;
+    END IF;
+END $$;
+
+-- SECTION 4: BERTH ASSIGNMENTS (25 active assignments)
+
+INSERT INTO berth_assignments (berth_id, vessel_id, customer_id, check_in, expected_check_out, status, electricity_requested, water_requested, wifi_requested, daily_rate_eur, total_days, total_amount_eur, was_seal_predicted, seal_confidence_score, created_at)
+SELECT
+    b.id,
+    v.id,
+    v.customer_id,
+    NOW() - INTERVAL '5 days' + (v.id * INTERVAL '12 hours'),
+    NOW() + INTERVAL '3 days' + (v.id * INTERVAL '12 hours'),
+    'active'::assignment_status,
+    CASE WHEN v.id % 2 = 0 THEN 380 ELSE 220 END,
+    true,
+    true,
+    b.daily_rate_eur,
+    8,
+    b.daily_rate_eur * 8,
+    CASE WHEN v.id = 1 THEN true ELSE false END,
+    CASE WHEN v.id = 1 THEN 0.95 ELSE NULL END,
+    NOW() - INTERVAL '5 days' + (v.id * INTERVAL '12 hours')
+FROM vessels v
+JOIN berths b ON b.berth_number = CASE
+    WHEN v.id = 1 THEN 'B-12'
+    WHEN v.id = 2 THEN 'A-03'
+    WHEN v.id = 3 THEN 'B-23'
+    WHEN v.id <= 10 THEN 'A-' || LPAD((v.id + 10)::text, 2, '0')
+    WHEN v.id <= 20 THEN 'B-' || LPAD((v.id)::text, 2, '0')
+    WHEN v.id <= 25 THEN 'C-' || LPAD((v.id - 10)::text, 2, '0')
+    ELSE 'D-' || LPAD((v.id - 20)::text, 2, '0')
+END
+WHERE v.id <= 25
+ORDER BY v.id;
+
+-- Verify assignment count
+DO $$
+DECLARE
+    assignment_count INT;
+BEGIN
+    SELECT COUNT(*) INTO assignment_count FROM berth_assignments WHERE status = 'active';
+    RAISE NOTICE 'Total active assignments: %', assignment_count;
+
+    IF assignment_count < 20 THEN
+        RAISE EXCEPTION 'Expected at least 20 active assignments, but created %', assignment_count;
+    END IF;
+END $$;
+
+-- SECTION 5: VHF LOGS (25 communication records)
+
+INSERT INTO vhf_logs (channel, frequency, direction, vessel_name, message_text, language_detected, intent_parsed, confidence_score, response_text, response_time_seconds, was_processed, resulted_in_assignment, assignment_id, timestamp)
+VALUES
+(72, '156.625', 'incoming', 'Psedelia', 'Merhaba West Istanbul Marina, 14 metrelik tekne için 3 gecelik rezervasyon istiyorum', 'tr', 'reservation_create', 95, 'Psedelia, rezervasyonunuz B-12 için onaylandı. Günlük 45 euro, toplam 135 euro. Varış saatiniz nedir? Over.', 6, true, true, 1, NOW() - INTERVAL '5 days'),
+(72, '156.625', 'incoming', 'Sea Spirit', 'West Istanbul Marina, this is Sea Spirit requesting berth for 5 nights', 'en', 'reservation_create', 92, 'Sea Spirit, we have berth A-15 available. Daily rate 52 EUR. Please confirm. Over.', 7, true, false, NULL, NOW() - INTERVAL '4 days'),
+(72, '156.625', 'incoming', 'Deniz Yıldızı', 'Marina, yakıt ikmali gerekiyor', 'tr', 'service_request', 88, 'Deniz Yıldızı, yakıt servisi 20 dakika içinde yanınızda. Over.', 4, true, false, NULL, NOW() - INTERVAL '3 days'),
+(72, '156.625', 'incoming', 'Martı', 'Elektrik problemi var B-23''te', 'tr', 'service_request', 91, 'Martı, teknisyen yola çıktı. 15 dakikada orada olacak. Over.', 5, true, false, NULL, NOW() - INTERVAL '2 days'),
+(72, '156.625', 'incoming', 'Ocean Dream', 'Marina, requesting departure clearance', 'en', 'departure_notification', 94, 'Ocean Dream, departure approved. Fair winds. Over.', 3, true, false, NULL, NOW() - INTERVAL '1 day'),
+(72, '156.625', 'outgoing', 'Bella Vita', 'Bella Vita, lütfen marina kurallarına uyunuz. Hız limiti 3 knot. Over.', 'tr', NULL, NULL, NULL, NULL, false, false, NULL, NOW() - INTERVAL '12 hours'),
+(72, '156.625', 'incoming', 'Wind Dancer', 'Good morning marina, arriving in 30 minutes', 'en', 'arrival_notification', 96, 'Wind Dancer, welcome. Proceed to berth C-18. Over.', 4, true, false, NULL, NOW() - INTERVAL '10 hours'),
+(72, '156.625', 'incoming', 'Poseidon', 'Καλημέρα, θέλουμε να κλείσουμε θέση για 4 νύχτες', 'el', 'reservation_create', 89, 'Poseidon, we have availability. Section D. Please confirm. Over.', 8, true, false, NULL, NOW() - INTERVAL '8 hours'),
+(72, '156.625', 'incoming', 'Beyaz Yelken', 'Su bağlantısı çalışmıyor A-25', 'tr', 'service_request', 93, 'Beyaz Yelken, su servisi kontrol ediliyor. Over.', 3, true, false, NULL, NOW() - INTERVAL '6 hours'),
+(72, '156.625', 'incoming', 'Mavi Yolculuk', '2 haftalık uzun süreli park istiyoruz', 'tr', 'reservation_create', 90, 'Mavi Yolculuk, uzun süreli park için özel indirim var. İletişime geçiyoruz. Over.', 5, true, false, NULL, NOW() - INTERVAL '4 hours'),
+(72, '156.625', 'incoming', 'Test Vessel', 'Marina bilgi talebi', 'tr', 'general_inquiry', 85, 'Günlük fiyatlar 35-200 EUR arası. Detay için +90 212 555 0000. Over.', 4, true, false, NULL, NOW() - INTERVAL '3 hours'),
+(72, '156.625', 'incoming', 'Yat-015', 'İskele değişikliği mümkün mü?', 'tr', 'service_request', 87, 'Kontrol ediyoruz, size dönüş yapacağız. Over.', 3, true, false, NULL, NOW() - INTERVAL '2 hours'),
+(72, '156.625', 'incoming', 'Yat-020', 'Çıkış işlemleri için marina ofis', 'tr', 'departure_notification', 91, 'Yat-020, çıkış belgeleriniz hazır. Marina ofise gelebilirsiniz. Over.', 4, true, false, NULL, NOW() - INTERVAL '1 hour'),
+(72, '156.625', 'emergency', 'EMERGENCY', 'Mayday mayday, medical emergency berth E-15', 'en', 'emergency', 99, 'Emergency services dispatched immediately to E-15. Ambulance ETA 8 minutes. Over.', 2, true, false, NULL, NOW() - INTERVAL '30 minutes'),
+(72, '156.625', 'incoming', 'Yat-025', 'Güvenlik kontrolü tamamlandı mı?', 'tr', 'general_inquiry', 88, 'Evet, güvenlik kontrolü tamamlandı. Over.', 3, true, false, NULL, NOW() - INTERVAL '15 minutes');
+
+-- Verify VHF log count
+DO $$
+DECLARE
+    vhf_count INT;
+BEGIN
+    SELECT COUNT(*) INTO vhf_count FROM vhf_logs;
+    RAISE NOTICE 'Total VHF logs created: %', vhf_count;
+
+    IF vhf_count < 15 THEN
+        RAISE EXCEPTION 'Expected at least 15 VHF logs, but created %', vhf_count;
+    END IF;
+END $$;
+
+-- SECTION 6: INVOICES (15 invoices)
+
+INSERT INTO invoices (customer_id, invoice_number, invoice_date, due_date, subtotal_eur, tax_amount_eur, total_amount_eur, status, line_items, created_at)
+SELECT
+    ba.customer_id,
+    'INV-2025-' || LPAD(ba.id::text, 6, '0'),
+    ba.check_in,
+    ba.expected_check_out + INTERVAL '15 days',
+    ba.total_amount_eur,
+    ba.total_amount_eur * 0.20,
+    ba.total_amount_eur * 1.20,
+    CASE
+        WHEN ba.id <= 10 THEN 'paid'::invoice_status
+        WHEN ba.id <= 20 THEN 'issued'::invoice_status
+        ELSE 'draft'::invoice_status
+    END,
+    json_build_array(
+        json_build_object(
+            'description', 'Berth rental - ' || ba.total_days || ' days',
+            'quantity', ba.total_days,
+            'unit_price', ba.daily_rate_eur,
+            'total', ba.total_amount_eur
+        ),
+        json_build_object(
+            'description', 'Electricity service',
+            'quantity', 1,
+            'unit_price', 10.0,
+            'total', 10.0
+        )
+    )::text,
+    ba.created_at
+FROM berth_assignments ba
+WHERE ba.id <= 15;
+
+-- SECTION 7: VIOLATIONS (10 violations)
+
+INSERT INTO violations (vessel_id, customer_id, article_violated, description, severity, status, fine_amount_eur, detected_by, detected_at)
+VALUES
+(2, 2, 'E.1.10', 'Speed limit exceeded: 5.2 knots detected in marina area (max 3 knots)', 'warning', 'reported', 50.00, 'VERIFY_AGENT', NOW() - INTERVAL '2 days'),
+(5, 5, 'E.5.5', 'Hot work performed without proper permit - welding observed', 'major', 'resolved', 200.00, 'MANUAL', NOW() - INTERVAL '5 days'),
+(8, 8, 'E.2.1', 'Insurance expired - vessel not compliant', 'critical', 'under_review', 500.00, 'VERIFY_AGENT', NOW() - INTERVAL '3 days'),
+(12, 12, 'E.1.8', 'Improper waste disposal - oil spill reported', 'major', 'reported', 300.00, 'VERIFY_AGENT', NOW() - INTERVAL '1 day'),
+(15, 15, 'E.1.5', 'Unauthorized berth occupation', 'minor', 'resolved', 100.00, 'MANUAL', NOW() - INTERVAL '7 days'),
+(18, 18, 'E.3.2', 'Noise violation during quiet hours (22:00-08:00)', 'warning', 'reported', 75.00, 'VERIFY_AGENT', NOW() - INTERVAL '12 hours'),
+(20, 20, 'E.1.10', 'Excessive wake in no-wake zone', 'warning', 'reported', 50.00, 'VERIFY_AGENT', NOW() - INTERVAL '6 hours'),
+(22, 22, 'E.6.2', 'Overstay without notification - 2 days over reservation', 'minor', 'under_review', 150.00, 'VERIFY_AGENT', NOW() - INTERVAL '18 hours'),
+(25, 25, 'E.4.1', 'Improper mooring - lines not secured correctly', 'warning', 'resolved', 30.00, 'MANUAL', NOW() - INTERVAL '4 days'),
+(28, 28, 'E.7.2', 'Outstanding payment - 15 days overdue', 'minor', 'reported', 0.00, 'VERIFY_AGENT', NOW() - INTERVAL '1 hour');
+
+-- SECTION 8: PERMITS (8 permits)
+
+INSERT INTO permits (permit_number, permit_type, vessel_id, customer_id, work_type, work_description, fire_prevention_measures, fire_watch_assigned, extinguishers_positioned, surrounding_notified, requested_at, start_time, end_time, status, approved_by, approved_at, safety_briefing_completed, insurance_verified)
+VALUES
+('HWP-2025-11-001', 'hot_work', 34, 34, 'Welding', 'Mast repair welding - structural reinforcement', 'Fire extinguishers positioned, fire blanket ready, surrounding yachts notified', 'Mehmet Yılmaz', true, true, NOW() - INTERVAL '3 days', NOW() - INTERVAL '3 days' + INTERVAL '2 hours', NOW() - INTERVAL '3 days' + INTERVAL '4 hours', 'completed', 'Marina Manager', NOW() - INTERVAL '3 days' + INTERVAL '1 hour', true, true),
+('HWP-2025-11-002', 'hot_work', 12, 12, 'Grinding', 'Hull grinding and sanding', 'Fire watch assigned, water hose ready, area cleared', 'Ali Demir', true, true, NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days' + INTERVAL '3 hours', NOW() - INTERVAL '2 days' + INTERVAL '5 hours', 'completed', 'Marina Manager', NOW() - INTERVAL '2 days' + INTERVAL '2 hours', true, true),
+('HWP-2025-11-003', 'hot_work', 8, 8, 'Welding', 'Engine mount welding', 'Full fire prevention protocol, 3 extinguishers, fire watch', 'Kemal Öz', true, true, NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day' + INTERVAL '4 hours', NOW() - INTERVAL '1 day' + INTERVAL '6 hours', 'completed', 'Marina Manager', NOW() - INTERVAL '1 day' + INTERVAL '3 hours', true, true),
+('CP-2025-11-004', 'crane_operation', 45, 45, 'Crane Lift', 'Mast removal for winter storage', 'Safety zone established, certified crane operator', 'Crane Operator', false, true, NOW() - INTERVAL '5 hours', NOW() - INTERVAL '4 hours', NOW() - INTERVAL '2 hours', 'completed', 'Marina Manager', NOW() - INTERVAL '5 hours' + INTERVAL '30 minutes', true, true),
+('HWP-2025-11-005', 'hot_work', 18, 18, 'Cutting', 'Metal frame cutting for modification', 'Fire prevention full protocol, area isolated', 'Ahmet Kara', true, true, NOW() - INTERVAL '3 hours', NOW() + INTERVAL '1 hour', NOW() + INTERVAL '3 hours', 'active', 'Marina Manager', NOW() - INTERVAL '2 hours', true, true),
+('PP-2025-11-006', 'painting', 22, 22, 'Hull Painting', 'Antifouling paint application', 'Proper ventilation, environmental protection', NULL, false, true, NOW() - INTERVAL '2 hours', NOW() + INTERVAL '2 hours', NOW() + INTERVAL '8 hours', 'approved', 'Marina Manager', NOW() - INTERVAL '1 hour', true, true),
+('EW-2025-11-007', 'engine_work', 28, 28, 'Engine Overhaul', 'Complete engine service and testing', 'Oil spill prevention, absorbent materials ready', NULL, false, false, NOW() - INTERVAL '1 hour', NOW() + INTERVAL '4 hours', NOW() + INTERVAL '10 hours', 'approved', 'Marina Manager', NOW() - INTERVAL '30 minutes', true, true),
+('HWP-2025-11-008', 'hot_work', 15, 15, 'Welding', 'Stanchion repair welding', 'Fire extinguisher ready, fire blanket, watch assigned', 'Mustafa Yıldız', true, true, NOW() - INTERVAL '30 minutes', NOW() + INTERVAL '3 hours', NOW() + INTERVAL '5 hours', 'requested', NULL, NULL, false, true);
+
+-- SECTION 9: SEAL LEARNING (5 learning patterns)
+
+INSERT INTO seal_learning (customer_id, vessel_id, pattern_type, pattern_description, confidence_score, occurrence_count, last_observed_at, learned_parameters, reward_score, is_active, auto_apply, times_applied, times_accepted, times_rejected, created_at)
+VALUES
+(1, 1, 'berth_preference', 'Customer always requests Berth B-12 when available', 0.95, 5, NOW() - INTERVAL '5 days', '{"preferred_berth": "B-12", "section": "B", "services": ["electricity_380v", "water", "wifi"]}', 0.87, true, true, 5, 5, 0, NOW() - INTERVAL '180 days'),
+(2, 2, 'duration_pattern', 'Typical stay duration is 3-4 nights', 0.88, 8, NOW() - INTERVAL '3 days', '{"avg_duration_days": 3.5, "min": 3, "max": 4}', 0.82, true, true, 8, 7, 1, NOW() - INTERVAL '150 days'),
+(5, 5, 'service_preference', 'Always requests 380V electricity and premium wifi', 0.92, 6, NOW() - INTERVAL '2 days', '{"electricity": "380v", "wifi": "premium", "water": true}', 0.85, true, true, 6, 6, 0, NOW() - INTERVAL '120 days'),
+(10, 10, 'timing_preference', 'Prefers morning arrivals (08:00-10:00) and evening departures', 0.89, 7, NOW() - INTERVAL '1 day', '{"arrival_time_start": "08:00", "arrival_time_end": "10:00", "departure_time": "evening"}', 0.79, true, false, 7, 5, 2, NOW() - INTERVAL '90 days'),
+(15, 15, 'berth_preference', 'Prefers Section C berths near amenities', 0.83, 4, NOW() - INTERVAL '10 days', '{"preferred_section": "C", "proximity": "amenities", "side": "starboard"}', 0.75, true, false, 4, 3, 1, NOW() - INTERVAL '60 days');
+
+-- FINAL SUMMARY
+DO $$
+DECLARE
+    berth_count INT;
+    customer_count INT;
+    vessel_count INT;
+    assignment_count INT;
+    vhf_count INT;
+    invoice_count INT;
+    violation_count INT;
+    permit_count INT;
+    seal_count INT;
+BEGIN
+    SELECT COUNT(*) INTO berth_count FROM berths;
+    SELECT COUNT(*) INTO customer_count FROM customers;
+    SELECT COUNT(*) INTO vessel_count FROM vessels;
+    SELECT COUNT(*) INTO assignment_count FROM berth_assignments WHERE status = 'active';
+    SELECT COUNT(*) INTO vhf_count FROM vhf_logs;
+    SELECT COUNT(*) INTO invoice_count FROM invoices;
+    SELECT COUNT(*) INTO violation_count FROM violations;
+    SELECT COUNT(*) INTO permit_count FROM permits;
+    SELECT COUNT(*) INTO seal_count FROM seal_learning;
+
+    RAISE NOTICE '';
+    RAISE NOTICE '========================================';
+    RAISE NOTICE '✅ ADA.MARINA DATABASE SEED COMPLETE';
+    RAISE NOTICE '========================================';
+    RAISE NOTICE 'Berths:               %', berth_count;
+    RAISE NOTICE 'Customers:            %', customer_count;
+    RAISE NOTICE 'Vessels:              %', vessel_count;
+    RAISE NOTICE 'Active Assignments:   %', assignment_count;
+    RAISE NOTICE 'VHF Logs:             %', vhf_count;
+    RAISE NOTICE 'Invoices:             %', invoice_count;
+    RAISE NOTICE 'Violations:           %', violation_count;
+    RAISE NOTICE 'Permits:              %', permit_count;
+    RAISE NOTICE 'SEAL Patterns:        %', seal_count;
+    RAISE NOTICE '========================================';
+    RAISE NOTICE '🚀 System ready for November 11, 2025!';
+    RAISE NOTICE '========================================';
+    RAISE NOTICE '';
+END $$;

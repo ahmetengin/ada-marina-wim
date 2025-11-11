@@ -103,11 +103,20 @@ docker-compose run --rm build-agent python scripts/demo_scenarios.py
 
 ## 📋 Veri Tabanı İstatistikleri
 
-- **Toplam İskele**: 600
-- **Müşteriler**: 50
-- **Gemiler**: 80
-- **Aktif Atamalar**: 25
-- **VHF Logları**: 20+
+- **Toplam İskele**: 600 (6 sektör: A-F)
+- **Müşteriler**: 50 (Türk ve uluslararası)
+- **Gemiler**: 80 (10m - 50m+)
+- **Aktif Atamalar**: 25+
+- **VHF Logları**: 20+ (Kanal 72)
+
+## 🏢 İskele Sektörleri
+
+- **Sektör A**: 10-15m tekneler (100 iskele)
+- **Sektör B**: 12-18m tekneler (100 iskele)
+- **Sektör C**: 15-25m tekneler (100 iskele)
+- **Sektör D**: 20-35m tekneler (100 iskele)
+- **Sektör E**: 30-50m süper yatlar (100 iskele)
+- **Sektör F**: Kuru depolama (100 iskele)
 
 ## 🔒 Güvenlik ve Uyumluluk
 

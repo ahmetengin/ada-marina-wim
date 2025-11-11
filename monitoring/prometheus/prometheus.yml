@@ -1,0 +1,90 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'ada-marina-wim'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # ADA.MARINA API (BUILD Agent)
+  - job_name: 'ada-marina-api'
+    static_configs:
+      - targets: ['build-agent:8000']
+        labels:
+          service: 'api'
+          agent: 'build'
+
+  # SCOUT Agent
+  - job_name: 'scout-agent'
+    static_configs:
+      - targets: ['scout-agent:9101']
+        labels:
+          service: 'agent'
+          agent: 'scout'
+
+  # PLAN Agent
+  - job_name: 'plan-agent'
+    static_configs:
+      - targets: ['plan-agent:9102']
+        labels:
+          service: 'agent'
+          agent: 'plan'
+
+  # VERIFY Agent
+  - job_name: 'verify-agent'
+    static_configs:
+      - targets: ['verify-agent:9103']
+        labels:
+          service: 'agent'
+          agent: 'verify'
+
+  # SHIP Agent
+  - job_name: 'ship-agent'
+    static_configs:
+      - targets: ['ship-agent:9104']
+        labels:
+          service: 'agent'
+          agent: 'ship'
+
+  # PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+        labels:
+          service: 'database'
+          type: 'postgres'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: 'cache'
+          type: 'redis'
+
+  # Neo4j
+  - job_name: 'neo4j'
+    static_configs:
+      - targets: ['neo4j:7474']
+        labels:
+          service: 'database'
+          type: 'neo4j'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'monitoring'

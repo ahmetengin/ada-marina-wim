@@ -28,6 +28,9 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-dateutil==2.8.2
 
+# Privacy & Security (ADA.SEA)
+cryptography==42.0.0  # AES-256-GCM encryption, zero-knowledge backup
+
 # Testing
 pytest==7.4.4
 pytest-asyncio==0.23.3

@@ -108,6 +108,18 @@ class RouteRecommendation:
     recommendations: List[str]
     warnings: List[str]
 
+    # Safety assessment
+    voyage_safe: bool = True
+    cancellation_recommended: bool = False
+    cancellation_reason: Optional[str] = None
+
+    # Alternative routes (if main route unsafe)
+    alternative_routes: Optional[List['RouteRecommendation']] = None
+
+    # Captain override
+    captain_override_required: bool = False
+    captain_override_reason: Optional[str] = None
+
 
 class WeatherAwareRoutePlanner:
     """
@@ -141,6 +153,15 @@ class WeatherAwareRoutePlanner:
             'wave_comfortable': 1.0,  # meters
             'wave_moderate': 1.5,
             'wave_uncomfortable': 2.0,
+        }
+
+        # Safety thresholds (voyage cancellation)
+        self.safety_limits = {
+            'wind_dangerous': 30,  # knots - CANCEL voyage
+            'wind_critical': 35,   # knots - ABSOLUTELY DO NOT GO
+            'wave_dangerous': 2.5,  # meters - CANCEL
+            'wave_critical': 3.0,   # meters - ABSOLUTELY DO NOT GO
+            'visibility_minimum': 1.0,  # NM - below this, CANCEL
         }
 
         logger.info("WeatherAwareRoutePlanner initialized")
@@ -240,7 +261,14 @@ class WeatherAwareRoutePlanner:
             anchorages=overnight_anchorages
         )
 
-        return RouteRecommendation(
+        # CRITICAL: Check voyage safety
+        safety_assessment = self._assess_voyage_safety(
+            weather_forecast=weather_forecast,
+            segments=segments
+        )
+
+        # Create base recommendation
+        recommendation = RouteRecommendation(
             vessel_name=vessel_name,
             vessel_type=vessel_type,
             departure=departure['name'],
@@ -252,8 +280,33 @@ class WeatherAwareRoutePlanner:
             overall_comfort_score=overall_comfort,
             weather_summary=self._summarize_weather(weather_forecast),
             recommendations=recommendations,
-            warnings=warnings
+            warnings=warnings,
+            voyage_safe=safety_assessment['safe'],
+            cancellation_recommended=safety_assessment['cancel_recommended'],
+            cancellation_reason=safety_assessment['cancel_reason'],
+            captain_override_required=safety_assessment['captain_override_required'],
+            captain_override_reason=safety_assessment['override_reason']
         )
+
+        # If unsafe, generate alternative routes
+        if not safety_assessment['safe'] and safety_assessment['cancel_recommended']:
+            logger.warning(f"🔴 VOYAGE UNSAFE: {safety_assessment['cancel_reason']}")
+
+            # Try to find alternative routes
+            alternatives = await self._generate_alternative_routes(
+                vessel_name=vessel_name,
+                vessel_type=vessel_type,
+                vessel_length=vessel_length,
+                departure=departure,
+                waypoints=waypoints,
+                nights=nights,
+                departure_date=departure_date,
+                avoid_reason=safety_assessment['cancel_reason']
+            )
+
+            recommendation.alternative_routes = alternatives
+
+        return recommendation
 
     async def _get_extended_forecast(
         self,
@@ -754,3 +807,262 @@ class WeatherAwareRoutePlanner:
                 review_count=19
             ),
         ]
+
+    def _assess_voyage_safety(
+        self,
+        weather_forecast: List[WeatherConditions],
+        segments: List[RouteSegment]
+    ) -> Dict[str, Any]:
+        """
+        Assess overall voyage safety
+
+        CRITICAL: Check for dangerous weather that requires cancellation
+
+        Args:
+            weather_forecast: Weather forecast for voyage
+            segments: Planned route segments
+
+        Returns:
+            Safety assessment
+        """
+        max_wind = max(w.wind_speed_knots for w in weather_forecast) if weather_forecast else 0
+        max_wave = max(w.wave_height_m for w in weather_forecast) if weather_forecast else 0
+        min_visibility = min(w.visibility_nm for w in weather_forecast) if weather_forecast else 10
+
+        # Find which day has the problem
+        dangerous_day = None
+        for i, w in enumerate(weather_forecast, 1):
+            if (w.wind_speed_knots >= self.safety_limits['wind_dangerous'] or
+                w.wave_height_m >= self.safety_limits['wave_dangerous'] or
+                w.visibility_nm < self.safety_limits['visibility_minimum']):
+                dangerous_day = i
+                break
+
+        # CRITICAL conditions - ABSOLUTELY DO NOT GO
+        if max_wind >= self.safety_limits['wind_critical']:
+            return {
+                'safe': False,
+                'cancel_recommended': True,
+                'cancel_reason': f"🔴 KRİTİK: {max_wind:.0f} knot fırtına bekleniyor (Gün {dangerous_day}). SEFERİ İPTAL EDİN!",
+                'captain_override_required': True,
+                'override_reason': 'critical_weather',
+                'severity': 'CRITICAL'
+            }
+
+        if max_wave >= self.safety_limits['wave_critical']:
+            return {
+                'safe': False,
+                'cancel_recommended': True,
+                'cancel_reason': f"🔴 KRİTİK: {max_wave:.1f}m dalga bekleniyor (Gün {dangerous_day}). SEFERİ İPTAL EDİN!",
+                'captain_override_required': True,
+                'override_reason': 'critical_waves',
+                'severity': 'CRITICAL'
+            }
+
+        # DANGEROUS conditions - STRONGLY RECOMMEND CANCELLATION
+        if max_wind >= self.safety_limits['wind_dangerous']:
+            return {
+                'safe': False,
+                'cancel_recommended': True,
+                'cancel_reason': f"⚠️ TEHLİKELİ: {max_wind:.0f} knot rüzgar bekleniyor (Gün {dangerous_day}). Seferi ertelemenizi ÖNERİYORUM.",
+                'captain_override_required': True,
+                'override_reason': 'dangerous_weather',
+                'severity': 'DANGEROUS'
+            }
+
+        if max_wave >= self.safety_limits['wave_dangerous']:
+            return {
+                'safe': False,
+                'cancel_recommended': True,
+                'cancel_reason': f"⚠️ TEHLİKELİ: {max_wave:.1f}m dalga bekleniyor (Gün {dangerous_day}). Seferi ertelemenizi ÖNERİYORUM.",
+                'captain_override_required': True,
+                'override_reason': 'dangerous_waves',
+                'severity': 'DANGEROUS'
+            }
+
+        if min_visibility < self.safety_limits['visibility_minimum']:
+            return {
+                'safe': False,
+                'cancel_recommended': True,
+                'cancel_reason': f"⚠️ TEHLİKELİ: Düşük görüş mesafesi {min_visibility:.1f} NM (Gün {dangerous_day}). Seferi ertelemenizi ÖNERİYORUM.",
+                'captain_override_required': True,
+                'override_reason': 'poor_visibility',
+                'severity': 'DANGEROUS'
+            }
+
+        # Safe to proceed
+        return {
+            'safe': True,
+            'cancel_recommended': False,
+            'cancel_reason': None,
+            'captain_override_required': False,
+            'override_reason': None,
+            'severity': 'SAFE'
+        }
+
+    async def _generate_alternative_routes(
+        self,
+        vessel_name: str,
+        vessel_type: VesselType,
+        vessel_length: float,
+        departure: Dict[str, Any],
+        waypoints: List[Dict[str, Any]],
+        nights: int,
+        departure_date: datetime,
+        avoid_reason: str
+    ) -> Optional[List[RouteRecommendation]]:
+        """
+        Generate alternative routes when main route is unsafe
+
+        Options:
+        1. Delay departure by 24-48 hours
+        2. Shorter route (skip some waypoints)
+        3. Different anchorages with better protection
+
+        Args:
+            vessel_name: Vessel name
+            vessel_type: Vessel type
+            vessel_length: Vessel length
+            departure: Departure point
+            waypoints: Original waypoints
+            nights: Number of nights
+            departure_date: Original departure date
+            avoid_reason: Why main route is unsafe
+
+        Returns:
+            List of alternative route recommendations
+        """
+        logger.info("Generating alternative routes...")
+
+        alternatives = []
+
+        # ALTERNATIVE 1: Delay by 24 hours
+        try:
+            delayed_route = await self.plan_multi_day_route(
+                vessel_name=vessel_name,
+                vessel_type=vessel_type,
+                vessel_length=vessel_length,
+                departure=departure,
+                waypoints=waypoints,
+                nights=nights,
+                departure_date=departure_date + timedelta(days=1)
+            )
+
+            # Prevent infinite recursion
+            delayed_route.alternative_routes = None
+
+            if delayed_route.voyage_safe:
+                logger.info("✅ Alternative found: Delay 24 hours")
+                alternatives.append(delayed_route)
+        except Exception as e:
+            logger.error(f"Failed to generate delayed route: {e}")
+
+        # ALTERNATIVE 2: Delay by 48 hours
+        try:
+            delayed_route_48h = await self.plan_multi_day_route(
+                vessel_name=vessel_name,
+                vessel_type=vessel_type,
+                vessel_length=vessel_length,
+                departure=departure,
+                waypoints=waypoints,
+                nights=nights,
+                departure_date=departure_date + timedelta(days=2)
+            )
+
+            delayed_route_48h.alternative_routes = None
+
+            if delayed_route_48h.voyage_safe:
+                logger.info("✅ Alternative found: Delay 48 hours")
+                alternatives.append(delayed_route_48h)
+        except Exception as e:
+            logger.error(f"Failed to generate 48h delayed route: {e}")
+
+        # ALTERNATIVE 3: Shorter route (skip last waypoint)
+        if len(waypoints) > 1:
+            try:
+                shorter_route = await self.plan_multi_day_route(
+                    vessel_name=vessel_name,
+                    vessel_type=vessel_type,
+                    vessel_length=vessel_length,
+                    departure=departure,
+                    waypoints=waypoints[:-1],  # Skip last waypoint
+                    nights=nights - 1,
+                    departure_date=departure_date
+                )
+
+                shorter_route.alternative_routes = None
+
+                if shorter_route.voyage_safe:
+                    logger.info("✅ Alternative found: Shorter route")
+                    alternatives.append(shorter_route)
+            except Exception as e:
+                logger.error(f"Failed to generate shorter route: {e}")
+
+        if alternatives:
+            logger.info(f"Found {len(alternatives)} alternative routes")
+        else:
+            logger.warning("No safe alternative routes found")
+
+        return alternatives if alternatives else None
+
+    def captain_override(
+        self,
+        recommendation: RouteRecommendation,
+        captain_id: str,
+        override_reason: str,
+        force_majeure: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Captain overrides safety recommendation
+
+        IMPORTANT: Captain has final authority, but override is logged
+
+        Args:
+            recommendation: Route recommendation
+            captain_id: Captain identifier
+            override_reason: Reason for override
+            force_majeure: True if force majeure situation
+
+        Returns:
+            Override confirmation
+        """
+        logger.warning(f"⚠️ CAPTAIN OVERRIDE by {captain_id}")
+        logger.warning(f"   Reason: {override_reason}")
+        logger.warning(f"   Force Majeure: {force_majeure}")
+
+        if recommendation.cancellation_recommended:
+            logger.warning(f"   Original recommendation: CANCEL VOYAGE")
+            logger.warning(f"   Cancellation reason: {recommendation.cancellation_reason}")
+
+        # Log override
+        override_log = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'captain_id': captain_id,
+            'voyage': f"{recommendation.departure} → {recommendation.destination}",
+            'original_recommendation': 'CANCEL' if recommendation.cancellation_recommended else 'PROCEED',
+            'captain_decision': 'PROCEED',
+            'override_reason': override_reason,
+            'force_majeure': force_majeure,
+            'weather_summary': recommendation.weather_summary,
+            'cancellation_reason': recommendation.cancellation_reason,
+            'acknowledged_risks': True
+        }
+
+        if force_majeure:
+            logger.info("✅ Force majeure acknowledged - override accepted")
+        else:
+            logger.warning("⚠️ Captain proceeding against safety recommendation")
+
+        return {
+            'override_accepted': True,
+            'override_log': override_log,
+            'message_tr': f"Kaptan {captain_id} sorumluluğu üstleniyor. İyi seyirler ve dikkatli olun!",
+            'message_en': f"Captain {captain_id} assumes responsibility. Safe travels and be careful!",
+            'recommendations': [
+                "✅ Çift demir kullanın (double anchor setup)",
+                "✅ VHF Kanal 16'yı sürekli izleyin",
+                "✅ Hava durumunu her 30 dakikada kontrol edin",
+                "✅ En yakın güvenli limana hazır olun",
+                "✅ Mürettebatı bilgilendirin"
+            ]
+        }

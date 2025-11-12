@@ -31,6 +31,9 @@ class DataClassification(Enum):
     # LEVEL 3: Anonymous/aggregated only
     ANONYMOUS = "anonymous"
 
+    # LEVEL 4: Already public via AIS broadcast (no additional privacy risk)
+    PUBLIC_AIS = "public_ais"
+
 
 class PrivacyException(Exception):
     """Base exception for privacy violations"""
@@ -86,7 +89,8 @@ class AdaSeaPrivacyCore:
         encryption_service,
         captain_auth_required: bool = True,
         cloud_sync_enabled: bool = False,
-        edge_only_mode: bool = True
+        edge_only_mode: bool = True,
+        trusted_partners: Optional[List[str]] = None
     ):
         """
         Initialize privacy core
@@ -98,6 +102,7 @@ class AdaSeaPrivacyCore:
             captain_auth_required: Require captain auth (default: True)
             cloud_sync_enabled: Allow cloud sync (default: False)
             edge_only_mode: Keep all data on-device (default: True)
+            trusted_partners: List of contracted partners (e.g., marinas)
         """
         self.consent_manager = consent_manager
         self.audit_logger = audit_logger
@@ -108,6 +113,9 @@ class AdaSeaPrivacyCore:
         self.cloud_sync_enabled = cloud_sync_enabled
         self.edge_only_mode = edge_only_mode
 
+        # Trusted partners (contracted marinas that already know the vessel)
+        self.trusted_partners = trusted_partners or []
+
         # Data classification rules
         self.data_policy = self._initialize_data_policy()
 
@@ -115,6 +123,7 @@ class AdaSeaPrivacyCore:
         logger.info(f"Captain auth required: {captain_auth_required}")
         logger.info(f"Cloud sync: {cloud_sync_enabled}")
         logger.info(f"Edge-only mode: {edge_only_mode}")
+        logger.info(f"Trusted partners: {len(self.trusted_partners)}")
 
     def _initialize_data_policy(self) -> Dict[DataClassification, List[str]]:
         """
@@ -123,19 +132,19 @@ class AdaSeaPrivacyCore:
         """
         return {
             DataClassification.PRIVATE: [
-                'gps_history',
+                'gps_history',  # Historical track (not current position)
                 'communication_logs',
                 'financial_data',
                 'crew_personal_info',
+                'insurance_info',
+                'owner_details',
                 'sensor_raw_data',
                 'security_cameras',
                 'passwords',
                 'api_keys',
-                'vessel_identity',
+                'medical_info',
             ],
             DataClassification.RESTRICTED: [
-                'current_position',
-                'vessel_specifications',
                 'arrival_time',
                 'contact_info',
                 'berth_number',
@@ -150,6 +159,23 @@ class AdaSeaPrivacyCore:
                 'popular_routes',
                 'anchorage_ratings',
                 'weather_reports',
+            ],
+            DataClassification.PUBLIC_AIS: [
+                # Already broadcast via AIS - no additional privacy risk
+                'vessel_name',  # AIS Message Type 5
+                'mmsi',  # AIS identifier
+                'imo_number',  # IMO number (if available)
+                'call_sign',  # Radio call sign
+                'current_position',  # Real-time GPS (AIS Message Type 1/2/3)
+                'course_over_ground',  # COG
+                'speed_over_ground',  # SOG
+                'heading',  # True heading
+                'vessel_specifications',  # Length, beam, draft (AIS Type 5)
+                'vessel_type',  # Vessel type code
+                'destination',  # Destination entered in AIS
+                'eta',  # Estimated time of arrival
+                'navigation_status',  # Under way, at anchor, moored, etc.
+                'draught',  # Current draught
             ]
         }
 
@@ -226,7 +252,24 @@ class AdaSeaPrivacyCore:
         )
 
         # 3. Check if captain authorization required
-        if self.captain_auth_required:
+        # SMART PRIVACY: Skip approval for AIS public data
+        permission = None
+
+        if classification == DataClassification.PUBLIC_AIS:
+            # AIS data already public - no approval needed, just audit
+            logger.info(f"PUBLIC_AIS data - no approval needed (already broadcast on AIS)")
+            permission = None  # Will proceed without permission object
+
+        elif self._is_trusted_partner(destination) and classification in [
+            DataClassification.PUBLIC_AIS,
+            DataClassification.RESTRICTED
+        ]:
+            # Trusted partner (contracted marina) + non-sensitive data
+            logger.info(f"Trusted partner + non-sensitive data - simplified approval")
+            # Could implement standing permission here, or just proceed
+            permission = None
+
+        elif self.captain_auth_required:
             logger.info("Captain authorization required - requesting permission")
 
             # Request captain permission
@@ -475,3 +518,54 @@ class AdaSeaPrivacyCore:
                 captain_confirmed=True
             )
         )
+
+    def _is_trusted_partner(self, destination: str) -> bool:
+        """
+        Check if destination is a trusted partner (contracted marina, etc.)
+
+        Trusted partners are pre-vetted partners that already have
+        a business relationship with the vessel/captain.
+
+        Args:
+            destination: Destination identifier
+
+        Returns:
+            True if trusted partner, False otherwise
+        """
+        # Check if destination matches any trusted partner
+        for partner in self.trusted_partners:
+            if partner.lower() in destination.lower():
+                return True
+
+        return False
+
+    def add_trusted_partner(self, partner_id: str, captain_confirmed: bool = False):
+        """
+        Add a trusted partner (requires captain confirmation)
+
+        Args:
+            partner_id: Partner identifier
+            captain_confirmed: Captain explicitly approved
+
+        Raises:
+            PrivacyException: If captain didn't confirm
+        """
+        if not captain_confirmed:
+            raise PrivacyException(
+                "Adding trusted partner requires captain confirmation"
+            )
+
+        if partner_id not in self.trusted_partners:
+            self.trusted_partners.append(partner_id)
+            logger.info(f"Added trusted partner: {partner_id}")
+
+    def remove_trusted_partner(self, partner_id: str):
+        """
+        Remove a trusted partner
+
+        Args:
+            partner_id: Partner identifier
+        """
+        if partner_id in self.trusted_partners:
+            self.trusted_partners.remove(partner_id)
+            logger.info(f"Removed trusted partner: {partner_id}")

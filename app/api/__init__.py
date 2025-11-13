@@ -3,7 +3,7 @@ API routes for ADA.MARINA
 """
 
 from fastapi import APIRouter
-from app.api.endpoints import berths, customers, vessels, assignments, vhf, violations, permits, dashboard
+from app.api.endpoints import berths, customers, vessels, assignments, vhf, violations, permits, dashboard, maritime
 
 api_router = APIRouter()
 
@@ -16,3 +16,4 @@ api_router.include_router(vhf.router, prefix="/vhf", tags=["VHF Communications"]
 api_router.include_router(violations.router, prefix="/violations", tags=["Violations"])
 api_router.include_router(permits.router, prefix="/permits", tags=["Permits"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+api_router.include_router(maritime.router, prefix="/maritime", tags=["Maritime Services 🌊"])
